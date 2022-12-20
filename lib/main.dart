@@ -1,8 +1,20 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 // ignore: library_prefixes
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
+class MyHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..badCertificateCallback =
+          (X509Certificate cert, String host, int port) => true;
+  }
+}
+
 void main() async {
+  HttpOverrides.global = MyHttpOverrides();
   runApp(const MyApp());
 }
 
@@ -14,21 +26,28 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  IO.Socket socket = IO.io('http://localhost:3000');
+  IO.Socket socket = IO.io('http://edauir.kz:3001');
   TextEditingController textController = TextEditingController(text: '');
   List messages = [];
+  final ScrollController _controller = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    socket.onConnect((_) {
+      print('connected');
+    });
     loadData();
   }
 
   loadData() {
     socket.on('messages_list', (data) {
       messages = data;
+      setState(() {});
+      Timer(const Duration(milliseconds: 1), () {
+        _controller.jumpTo(_controller.position.maxScrollExtent + 100);
+      });
     });
-    setState(() {});
   }
 
   sendMessage(message) {
@@ -54,14 +73,15 @@ class _MyAppState extends State<MyApp> {
             body: Column(children: [
               Container(
                 width: 500,
-                height: 300,
+                height: 600,
                 color: Colors.amber[200],
                 child: ListView.builder(
+                  controller: _controller,
                   scrollDirection: Axis.vertical,
                   itemCount: messages.length,
                   itemBuilder: (BuildContext context, int index) {
                     return ListTile(
-                      title: Text(messages[index]['id']),
+                      title: Text('${messages[index]['id']}:'),
                       subtitle: Text(messages[index]['message']),
                     );
                   },
