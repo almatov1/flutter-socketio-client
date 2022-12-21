@@ -1,10 +1,15 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 // ignore: library_prefixes
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:socket_io_client/socket_io_client.dart';
 
 void main() async {
-  runApp(const MyApp());
+  runApp(MaterialApp(
+      title: 'WebSocket Test',
+      theme: ThemeData(
+        primarySwatch: Colors.cyan,
+      ),
+      home: const MyApp()));
 }
 
 class MyApp extends StatefulWidget {
@@ -15,91 +20,161 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  IO.Socket socket = IO.io('http://localhost:3000?platformToken=r43xv43vi');
-  TextEditingController textController = TextEditingController(text: '');
-  List messages = [];
-  final ScrollController _controller = ScrollController();
+  late IO.Socket socket;
+  TextEditingController loginController = TextEditingController(text: '');
+  TextEditingController ipController = TextEditingController(text: '');
+  bool isLoading = false;
+  bool connected = false;
+  List users = [];
 
-  @override
-  void initState() {
-    super.initState();
-    socket.onConnect((_) {
-      print('connected');
-    });
-    loadData();
-  }
-
-  loadData() {
-    socket.on('messages_list', (data) {
-      messages = data;
-      setState(() {});
-      Timer(const Duration(milliseconds: 1), () {
-        _controller.jumpTo(_controller.position.maxScrollExtent + 100);
-      });
+  loadingChange() {
+    setState(() {
+      isLoading = !isLoading;
     });
   }
 
-  sendMessage(message) {
-    socket.emit(
-      "message",
-      {
-        "id": socket.id,
-        "message": message, // Message to be sent
-        "timestamp": DateTime.now().millisecondsSinceEpoch,
+  connectionResultDialog(BuildContext context, String result) {
+    Widget okButton = TextButton(
+      child: const Text("OK"),
+      onPressed: () {
+        Navigator.of(context).pop();
+      },
+    );
+
+    AlertDialog alert = AlertDialog(
+      title: Text(result),
+      actions: [
+        okButton,
+      ],
+    );
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return alert;
       },
     );
   }
 
+  // sendMessage(message) {
+  //   socket.emit(
+  //     "message",
+  //     {
+  //       "id": socket.id,
+  //       "message": message, // Message to be sent
+  //       "timestamp": DateTime.now().millisecondsSinceEpoch,
+  //     },
+  //   );
+  // }
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-        title: 'Chat Test',
-        theme: ThemeData(
-          primarySwatch: Colors.cyan,
-        ),
-        home: MaterialApp(
-          home: Scaffold(
-            body: Column(children: [
-              Container(
-                width: 500,
-                height: 600,
-                color: Colors.amber[200],
-                child: ListView.builder(
-                  controller: _controller,
-                  scrollDirection: Axis.vertical,
-                  itemCount: messages.length,
-                  itemBuilder: (BuildContext context, int index) {
-                    return ListTile(
-                      title: Text('${messages[index]['id']}:'),
-                      subtitle: Text(messages[index]['message']),
-                    );
-                  },
-                ),
-              ),
-              Container(
-                width: 500,
-                height: 100,
-                color: Colors.grey[200],
-                child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+    return Scaffold(
+      body: Container(
+        width: 500,
+        height: 300,
+        color: Colors.amber[200],
+        child: connected
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Text('connected to server'),
+                  Text('users count: ${users.length} / 5'),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      SizedBox(
-                        width: 150,
-                        child: TextField(
-                          maxLength: 50,
-                          controller: textController,
-                        ),
-                      ),
-                      ElevatedButton(
-                          onPressed: () {
-                            sendMessage(textController.text);
-                            textController.clear();
-                          },
-                          child: const Text('send message'))
-                    ]),
+                      const Text('users names: '),
+                      if (users.isNotEmpty)
+                        ...users.map((e) => Text('${e['name']} ')),
+                    ],
+                  ),
+                  ElevatedButton(
+                      onPressed: () {
+                        connectionResultDialog(
+                            context, 'Successfully disconnected');
+                        connected = false;
+                        socket.disconnect();
+                        setState(() {});
+                      },
+                      child: const Text('disconnect'))
+                ],
               )
-            ]),
-          ),
-        ));
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  SizedBox(
+                    width: 150,
+                    child: TextField(
+                      decoration: const InputDecoration(hintText: 'IP'),
+                      maxLength: 50,
+                      controller: ipController,
+                    ),
+                  ),
+                  SizedBox(
+                    width: 150,
+                    child: TextField(
+                      decoration: const InputDecoration(hintText: 'Login'),
+                      maxLength: 50,
+                      controller: loginController,
+                    ),
+                  ),
+                  if (isLoading) const CircularProgressIndicator(),
+                  ElevatedButton(
+                      onPressed: () {
+                        if (ipController.text.isNotEmpty &&
+                            loginController.text.isNotEmpty) {
+                          loadingChange();
+                          socket = IO.io(
+                              'http://${ipController.text}:3000?serverToken=r43xv43vi&userName=${loginController.text}',
+                              OptionBuilder()
+                                  .enableForceNewConnection()
+                                  .disableAutoConnect()
+                                  .build());
+
+                          socket.connect();
+
+                          socket.onConnectError((data) {
+                            connectionResultDialog(context, 'Invalid Address');
+                            socket.disconnect();
+                            loadingChange();
+                          });
+
+                          socket.on('connectResult', (data) {
+                            if (data == true) {
+                              connectionResultDialog(
+                                  context, 'Successfully connection');
+                              connected = true;
+                            } else {
+                              connectionResultDialog(context, data);
+                            }
+
+                            loadingChange();
+                          });
+
+                          socket.on('kicked', (data) {
+                            if (data == 'enabled another session') {
+                              connectionResultDialog(context, data);
+                              setState(() {
+                                connected = false;
+                              });
+                            }
+                          });
+
+                          socket.on('usersList', (data) {
+                            setState(() {
+                              users = data;
+                            });
+                          });
+
+                          ipController.clear();
+                          loginController.clear();
+                        }
+                      },
+                      child: const Text('connect'))
+                ],
+              ),
+      ),
+    );
   }
 }
